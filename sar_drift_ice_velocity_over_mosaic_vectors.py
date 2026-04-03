@@ -318,7 +318,7 @@ def main():
     program (i.e. via `if __name__ == "__main__"`).
     """
 
-    # import sar_drift as sd
+    import pyproj_setup
     import util
     import os
     from datetime import datetime

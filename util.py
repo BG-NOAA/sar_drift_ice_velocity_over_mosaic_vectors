@@ -42,30 +42,6 @@ Copyright notice
  DEALINGS IN THE SOFTWARE.
 """
 
-import os
-import sys
-from pathlib import Path
-
-# Derive paths from the active env rather than hard-coding
-env_prefix = Path(sys.prefix)
-proj_dir = env_prefix / "Library" / "share" / "proj"
-bin_dir = env_prefix / "Library" / "bin"
-
-# print("Using PROJ dir:", proj_dir)
-# print("Using bin dir:", bin_dir)
-
-os.add_dll_directory(str(bin_dir))
-
-# Set both env vars for PROJ
-os.environ["PROJ_DATA"] = str(proj_dir)
-os.environ["PROJ_LIB"] = str(proj_dir)   # backward compatibility
-
-# Tell pyproj explicitly where proj.db lives
-from pyproj.datadir import set_data_dir
-set_data_dir(str(proj_dir))
-
-from pyproj import Transformer, Geod
-
 #=========================
 # Standard error messaging
 #=========================
@@ -160,6 +136,7 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
     """
     
     import numpy as np
+    from pyproj import Transformer, Geod
    
     SECONDS_PER_DAY = 60 * 60 * 24
     tf = Transformer.from_crs('EPSG:4326', f'EPSG:{epsg}', always_xy=True)
