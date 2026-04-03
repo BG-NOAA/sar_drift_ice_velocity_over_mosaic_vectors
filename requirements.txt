@@ -1,0 +1,14 @@
+# SAR Drift Ice Velocity over MOSAiC Vectors
+# pip install -r requirements.txt
+#
+# Note: pyproj and geopandas depend on PROJ/GDAL system libraries.
+# On Windows, install via conda (environment.yml) to get pre-built binaries.
+# On Linux/macOS: apt/brew install libproj-dev libgdal-dev before pip install.
+
+numpy>=1.26
+pandas>=2.1
+pyproj>=3.6
+geopandas>=0.14
+shapely>=2.0
+fiona>=1.9
+tqdm>=4.66

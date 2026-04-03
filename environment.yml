@@ -1,0 +1,23 @@
+name: sar_mosaic_vectors
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+
+  # Geospatial / projection
+  - proj>=9.0
+  - pyproj>=3.6
+  - geopandas>=0.14
+  - shapely>=2.0
+  - fiona>=1.9
+
+  # Data
+  - numpy>=1.26
+  - pandas>=2.1
+
+  # I/O / progress
+  - tqdm>=4.66
+
+

@@ -1,0 +1,13 @@
+# Data files
+**/*.txt
+!requirements.txt
+**/*.csv
+
+# Python cache
+__pycache__
+
+# Ignored folders
+csv
+gpkg
+log
+mosaic

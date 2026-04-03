@@ -1,0 +1,9 @@
+{
+  "sar_drift_directory": "mosaic",
+  "qml_file": "meta/graduated_quivers.qml",
+  "clear_output_dir": true,
+  "delimiter": ",",
+  "skip_rows_before_header": 0,
+  "verbose": true,
+  "version": "01"
+}
