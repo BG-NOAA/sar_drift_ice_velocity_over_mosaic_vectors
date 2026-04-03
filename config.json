@@ -2,6 +2,7 @@
   "sar_drift_directory": "mosaic",
   "qml_file": "meta/graduated_quivers.qml",
   "clear_output_dir": true,
+  "epsg": 3413,
   "delimiter": ",",
   "skip_rows_before_header": 0,
   "verbose": true,

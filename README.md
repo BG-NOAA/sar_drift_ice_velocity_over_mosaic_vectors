@@ -1,19 +1,19 @@
 # SAR Drift Ice Velocity over MOSAiC Vectors
 
-Processes SAR-derived sea-ice drift files into filtered CSVs and styled GeoPackages for QGIS visualization and comparison with MOSAiC buoy observations.
+Filters SAR-derived sea-ice drift files into per-buoy CSVs and QGIS-styled GeoPackages for comparison with MOSAiC buoy observations.
 
 **Organization:** NOAA STAR SOCD / Colorado State University CIRA  
 **Author:** Brendon Gory (brendon.gory@noaa.gov)  
-**Supervisor:** Dr. Prasanjit Dash (prasanjit.dash@noaa.gov)
+**Supervisors:** Dr. Ludovic Brucker (ludovic.brucker@noaa.gov), Dr. Prasanjit Dash (prasanjit.dash@noaa.gov)
 
 ---
 
 ## Overview
 
-This tool reads a directory of SAR drift delimited files (one per buoy), applies a chain of quality filters, reprojects coordinates from EPSG:4326 to EPSG:3413 (NSIDC Sea Ice Polar Stereographic North), computes kinematic drift quantities, and writes per-buoy outputs:
+This tool reads a directory of SAR drift delimited files (one per buoy), applies a chain of quality filters, reprojects coordinates from EPSG:4326 to a configurable target CRS, computes kinematic drift quantities, and writes per-buoy outputs:
 
 - **CSV** — filtered, reduced-column tabular file
-- **GeoPackage** — drift-line vectors in EPSG:3413 with an embedded QML style for automatic rendering in QGIS
+- **GeoPackage** — drift-line vectors in the target CRS with an embedded QML style for automatic rendering in QGIS
 
 ---
 
@@ -68,11 +68,12 @@ Copy and edit `config.json` before running. All keys are required.
 |---|---|---|
 | `sar_drift_directory` | `str` | Path to directory containing SAR drift `.txt` / `.csv` files |
 | `qml_file` | `str` | Path to the QGIS QML style file to embed in each GeoPackage |
+| `epsg` | `int` | Target projected CRS. Must be `3413` (NSIDC Sea Ice Polar Stereographic North) or `6931` (EASE-Grid 2.0 North) |
 | `clear_output_dir` | `bool` | If `true`, delete and recreate `csv/`, `gpkg/`, and `log/` before running |
 | `delimiter` | `str` | Field separator in input files (e.g. `","`, `"\t"`) |
 | `skip_rows_before_header` | `int` | Number of rows to skip before the header row |
 | `verbose` | `bool` | Print resolved configuration parameters to the console |
-| `version` | `str` | Output file version string (e.g. `"01"`) appended to output filenames |
+| `version` | `str` | Version string appended to output filenames (e.g. `"01"`) |
 
 **Example `config.json`:**
 
@@ -80,6 +81,7 @@ Copy and edit `config.json` before running. All keys are required.
 {
   "sar_drift_directory": "mosaic",
   "qml_file": "meta/graduated_quivers.qml",
+  "epsg": 3413,
   "clear_output_dir": true,
   "delimiter": ",",
   "skip_rows_before_header": 0,
@@ -106,8 +108,8 @@ All outputs are written relative to the working directory.
 
 | Directory | Contents |
 |---|---|
-| `csv/` | `NOAA_SIVelocity_SAR_<buoy_id>_v<version>.csv` — filtered tabular data |
-| `gpkg/` | `NOAA_SIVelocity_SAR_<buoy_id>_v<version>.gpkg` — drift-line GeoPackage |
+| `csv/` | `NOAA_SIVelocity_SAR_<buoy_id>__<epsg>_v<version>.csv` — filtered tabular data |
+| `gpkg/` | `NOAA_SIVelocity_SAR_<buoy_id>__<epsg>_v<version>.gpkg` — drift-line GeoPackage |
 | `log/` | `run_<YYYYMMDD_HHMMSS>.log` — timestamped run log |
 
 ### Output columns (CSV / GeoPackage attribute table)
@@ -116,12 +118,12 @@ All outputs are written relative to the working directory.
 |---|---|---|
 | `latitude_1`, `longitude_1` | degrees | Start position |
 | `latitude_2`, `longitude_2` | degrees | End position |
-| `X1`, `Y1`, `X2`, `Y2` | m (EPSG:3413) | Projected start / end coordinates |
+| `X1`, `Y1`, `X2`, `Y2` | m (target EPSG) | Projected start / end coordinates |
 | `date_start`, `date_end` | UTC datetime | Observation window |
 | `duration_s` | s | Observation duration |
-| `sea_ice_x_displacement` | m | X displacement (EPSG:3413) |
-| `sea_ice_y_displacement` | m | Y displacement (EPSG:3413) |
-| `u_ms`, `v_ms` | m s⁻¹ | Cartesian velocity components (EPSG:3413) |
+| `sea_ice_x_displacement` | m | X displacement (target EPSG) |
+| `sea_ice_y_displacement` | m | Y displacement (target EPSG) |
+| `u_ms`, `v_ms` | m s⁻¹ | Cartesian velocity components (target EPSG) |
 | `sea_ice_speed` | m s⁻¹ | Geodesic drift speed |
 | `sea_ice_speed_kmdy` | km day⁻¹ | Drift speed, scaled to daily rate |
 | `direction_of_sea_ice_displacement` | degrees | Forward azimuth (WGS84 geodesic) |
@@ -150,29 +152,26 @@ Rounding precision constants are defined in `constants.py` and version-controlle
 |---|---|---|
 | `BEARING_PRECISION` | `0` | `direction_of_sea_ice_displacement` |
 | `SPEED_PRECISION` | `3` | Speed, displacement, and distance fields |
-| `DISPLACEMENT_PRECISION` | `4` | `U`, `V`, `dx`, `dy` components |
+| `DISPLACEMENT_PRECISION` | `4` | `u_ms`, `v_ms`, `dx`, `dy` components |
 | `COORDINATE_PRECISION` | `4` | Projected and geographic coordinate columns |
 
 ---
 
 ## Coordinate Reference Systems
 
-| EPSG | Name | Usage |
+| EPSG | Name | Role |
 |---|---|---|
-| 4326 | WGS84 Geographic | Input lat/lon |
-| 3413 | NSIDC Sea Ice Polar Stereographic North | Projected coordinates and GeoPackage geometry |
-| 3408 | NSIDC EASE-Grid North | Available transformer (not used in primary output) |
-| 3411 | Hughes 1980 Polar Stereographic | Available transformer (not used in primary output) |
+| 4326 | WGS84 Geographic | Input lat/lon from SAR drift files |
+| 3413 | NSIDC Sea Ice Polar Stereographic North | Supported target CRS |
+| 6931 | EASE-Grid 2.0 North | Supported target CRS |
 
-Geodesic bearing and distance are computed on the WGS84 ellipsoid using `pyproj.Geod`.
+The target CRS is set via `epsg` in `config.json`. Geodesic bearing and distance are computed on the WGS84 ellipsoid using `pyproj.Geod` and are independent of the chosen EPSG.
 
 ---
 
 ## Logging
 
 A timestamped log file is written to `log/run_<YYYYMMDD_HHMMSS>.log` for each run. Log entries cover run start/end times, input file discovery, per-file initial row counts, and rows dropped at each filter stage.
-
-Logger name: `sar_drift_ice_velocity_over_maosaic_vectors`
 
 ---
 

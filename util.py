@@ -2,16 +2,21 @@
 """
 ******************************************************************************
 
- Project:    SAR Drift Velocity over MOSAiC Vectors
- Purpose:    Utility functions that support the main script
- Author:     Brendon Gory, brendon.gory@noaa.gov
-                         brendon.gory@colostate.edu
-             Data Science Application Specialist (Research Associate II)
-             at CSU CIRA
- Supervisor: Dr. Prasanjit Dash, prasanjit.dash@noaa.gov
-                                 prasanjit.dash@colostate.edu
-             CSU CIRA Research Scientist III
-             (Program Innovation Scientist)
+ Project:     SAR Drift Ice Velocity over MOSAiC Vectors
+ Purpose:     Utility functions that support the main script, including
+              PROJ environment setup, coordinate reprojection to a
+              configurable EPSG, drift kinematics computation, SAR drift
+              file I/O, and GeoPackage creation with embedded QGIS styles.
+ Author:      Brendon Gory, brendon.gory@noaa.gov
+                            brendon.gory@colostate.edu
+              Data Science Application Specialist (Research Associate II)
+              at CSU CIRA
+ Supervisors: Dr. Ludovic Brucker, ludovic.brucker@noaa.gov
+              NESDIS Physical Scientist
+              Dr. Prasanjit Dash, prasanjit.dash@noaa.gov
+                                  prasanjit.dash@colostate.edu
+              CSU CIRA Research Scientist III
+              (Program Innovation Scientist)
 ******************************************************************************
 Copyright notice
          NOAA STAR SOCD and Colorado State Univ CIRA
@@ -59,7 +64,7 @@ os.environ["PROJ_LIB"] = str(proj_dir)   # backward compatibility
 from pyproj.datadir import set_data_dir
 set_data_dir(str(proj_dir))
 
-from pyproj import CRS, Transformer, Geod
+from pyproj import Transformer, Geod
 
 #=========================
 # Standard error messaging
@@ -88,79 +93,15 @@ def error_msg(msg):
 # Internal functions
 #===================
 
-def _set_transformer(epsg=3413):
-    transformer = {}
-    
-    # CRS setup
-    transformer['epsg'] = epsg
-    transformer['crs_string_3413'] = CRS.from_string(
-        "+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 "
-        "+x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs"
-    )
-    transformer['crs_string_4326'] = CRS.from_string(
-        "+proj=longlat +datum=WGS84 +no_defs +type=crs"
-    )
-    transformer["crs_string_3408"] = CRS.from_string(
-        "+proj=laea +lat_0=90 +lon_0=0 "
-        "+x_0=0 +y_0=0 "
-        "+a=6371228 +b=6371228 "
-        "+units=m +no_defs +type=crs"
-    )
-    
-    transformer["crs_string_3411"] = CRS.from_string(
-        "+proj=stere +lat_0=90 +lat_ts=70 +lon_0=-45 "
-        "+x_0=0 +y_0=0 +a=6378273 +b=6356889.449 "
-        "+units=m +no_defs +type=crs"
-    )
-    
-    transformer['proj4_3413_dict'] = {
-        "proj": "stere",
-        "lat_0": 90,
-        "lat_ts": 70,
-        "lon_0": -45,
-        "x_0": 0,
-        "y_0": 0,
-        "datum": "WGS84",
-        "units": "m",
-        "no_defs": True
-    }
-    
-    transformer['4326_to_3413'] = Transformer.from_crs(
-        transformer['crs_string_4326'],
-        transformer['crs_string_3413'],
-        always_xy=True
-    )
-
-    transformer['3413_to_4326'] = Transformer.from_crs(
-        transformer['crs_string_3413'],
-        transformer['crs_string_4326'],
-        always_xy=True
-    )
-    
-    transformer['4326_to_3408'] = Transformer.from_crs(
-        transformer['crs_string_4326'],
-        transformer['crs_string_3408'],
-        always_xy=True
-    )
-    
-    transformer['4326_to_3411'] = Transformer.from_crs(
-        transformer['crs_string_4326'],
-        transformer['crs_string_3411'],
-        always_xy=True
-    )
-    
-    return transformer
-        
-
-def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s):
+def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
     """
     Compute sea-ice drift kinematics from start/end geographic coordinates.
- 
-    Projects start and end positions from EPSG:4326 to EPSG:3413 (NSIDC Sea
-    Ice Polar Stereographic North), computes Cartesian displacement components,
-    and derives speed. Bearing is obtained a WGS84 geodesic inverse
+
+    Projects start and end positions from EPSG:4326 to the projection
+    specified by `epsg`, computes Cartesian displacement components, and
+    derives speed. Bearing is obtained via a WGS84 geodesic inverse
     calculation.
- 
+
     Args:
         lat1 (array-like): Starting latitudes in decimal degrees (EPSG:4326).
         lon1 (array-like): Starting longitudes in decimal degrees (EPSG:4326).
@@ -168,53 +109,60 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s):
         lon2 (array-like): Ending longitudes in decimal degrees (EPSG:4326).
         duration_s (array-like): Observation duration in seconds
                                   (Time2_JS − Time1_JS).
- 
+        epsg (int): EPSG code of the target projected CRS used for Cartesian
+                    displacement and velocity components
+                    (e.g. 3413 for NSIDC Sea Ice Polar Stereographic North,
+                     3411 for Hughes 1980 Polar Stereographic,
+                     3408 for NSIDC EASE-Grid North).
+
     Returns:
         dict: Dictionary of derived drift quantities with the following keys:
- 
-            Projected coordinates (EPSG:3413, metres):
+
+            Projected coordinates (target EPSG, metres):
                 - 'X1' : x-coordinate of start position
                 - 'Y1' : y-coordinate of start position
                 - 'X2' : x-coordinate of end position
                 - 'Y2' : y-coordinate of end position
- 
-            Displacement (EPSG:3413, metres):
+
+            Displacement (target EPSG, metres):
                 - 'dx' : X2 − X1
                 - 'dy' : Y2 − Y1
- 
-            Geodesic quantities:
+
+            Geodesic quantities (WGS84 ellipsoid, independent of EPSG):
                 - 'distance'  : geodesic distance between start and end (m)
                 - 'bearing'   : forward azimuth from start to end (degrees)
- 
-            Velocity components (EPSG:3413):
+
+            Velocity components (target EPSG):
                 - 'u_ms' : dx / duration_s  (m s⁻¹)
                 - 'v_ms' : dy / duration_s  (m s⁻¹)
- 
+
             Speed:
                 - 'speed_ms'   : distance / duration_s (m s⁻¹)
                 - 'speed_kmdy' : (distance / 1000) / (duration_s / 86400)
                                   (km day⁻¹)
- 
+
     Notes:
-        - Projection is performed with `pyproj.Transformer` using
+        - Projection is performed with `pyproj.Transformer.from_crs` using
           `always_xy=True`, so longitude is passed before latitude.
         - Geodesic distance and forward azimuth are computed with
-          `pyproj.Geod(ellps='WGS84').inv(lon1, lat1, lon2, lat2)`.
-        - `u_vel_ms` and `v_vel_ms` are Cartesian velocity components in
-          EPSG:3413 projection space. In this projection the x-axis points
-          roughly eastward and the y-axis roughly northward, but note that
-          the source file's `U_vel_ms` / `V_vel_ms` fields use the opposite
-          convention (U drives Y, V drives X). The values returned here are
-          computed directly from projected displacements and are
+          `pyproj.Geod(ellps='WGS84').inv(lon1, lat1, lon2, lat2)` and are
+          independent of the chosen EPSG.
+        - `u_ms` and `v_ms` are Cartesian velocity components in the target
+          projected CRS. Axis orientation varies by projection; in EPSG:3413
+          the x-axis points roughly eastward and the y-axis roughly northward.
+          Note that the source file's `U_vel_ms` / `V_vel_ms` fields use the
+          opposite convention (U drives Y, V drives X). The values returned
+          here are computed directly from projected displacements and are
           self-consistent.
-          
+
     Coauthor:
-        Ludo Brucker, ludovic.brucker@noaa.gov        
-    """    
+        Ludo Brucker, ludovic.brucker@noaa.gov
+    """
+    
     import numpy as np
    
     SECONDS_PER_DAY = 60 * 60 * 24
-    tf = Transformer.from_crs('EPSG:4326', 'EPSG:3413', always_xy=True)
+    tf = Transformer.from_crs('EPSG:4326', f'EPSG:{epsg}', always_xy=True)
     
     x1, y1 = tf.transform(lon1, lat1)
     x2, y2 = tf.transform(lon2, lat2)
@@ -501,7 +449,8 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
         lon1=df['Lon1'].values,
         lat2=df['Lat2'].values,
         lon2=df['Lon2'].values,
-        duration_s=df['duration_s'].values
+        duration_s=df['duration_s'].values,
+        epsg=config['epsg']
     )
     
     df['Lat1'] = np.round(df['Lat1'], config['coordinate_precision'])
@@ -569,19 +518,18 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
 def create_shape_package(df, gpkg_path, config):
     """
     Create a GeoPackage containing drift line vectors for SAR drift data.
- 
+
     Builds LineString geometries from projected start and end coordinates
-    (EPSG:3413) and writes all columns from the input DataFrame as a single
-    `drift_lines` layer within a GeoPackage. A QML style file is embedded
-    directly into the GeoPackage's `layer_styles` table for automatic styling
-    when opened in QGIS.
- 
+    in the CRS specified by `config['epsg']` and writes all columns from
+    the input DataFrame as a single `drift_lines` layer within a GeoPackage.
+    A QML style file is embedded directly into the GeoPackage's `layer_styles`
+    table for automatic styling when opened in QGIS.
+
     Args:
         df (pandas.DataFrame): Input DataFrame containing drift vectors, as
-            produced by `read_sar_drift_data_file` and `outlier_search`.
-            All columns are written to the GeoPackage. Expected columns
-            include:
-                Projected coordinates (EPSG:3413, metres):
+            produced by `read_sar_drift_data_file`. All columns are written
+            to the GeoPackage. Expected columns include:
+                Projected coordinates (target EPSG, metres):
                     - 'X1', 'Y1' (float): Start position.
                     - 'X2', 'Y2' (float): End position.
                 Geographic coordinates (degrees):
@@ -611,15 +559,20 @@ def create_shape_package(df, gpkg_path, config):
                       included in the output if present in `df`.
         gpkg_path (str): Full path for the output GeoPackage file.
         config (dict): Configuration dictionary containing:
+                - 'epsg' (int): EPSG code of the projected CRS used for
+                                LineString geometry
+                                (e.g. 3413, 3411, 3408).
                 - 'qml_file' (str): Path to the QML style file to embed.
- 
+
     Returns:
         None
- 
+
     Notes:
-        - Geometry is a `LineString` from `(X1, Y1)` to `(X2, Y2)` in
-          EPSG:3413 projected metres, not from geographic coordinates.
-        - CRS is set to EPSG:3413 (NSIDC Sea Ice Polar Stereographic North).
+        - Geometry is a `LineString` from `(X1, Y1)` to `(X2, Y2)` in the
+          projected CRS defined by `config['epsg']`, not from geographic
+          coordinates.
+        - CRS is assigned directly from `config['epsg']` via
+          `GeoDataFrame.set_crs`.
         - A helper column `geometry_type` is added with the literal value
           `'line'` to identify the layer geometry type.
         - All columns present in `df` are written to the GeoPackage layer;
@@ -657,7 +610,7 @@ def create_shape_package(df, gpkg_path, config):
     gdf_line = gdf_line.rename(
         columns={'geometry_line': 'geometry'}
     ).set_geometry('geometry')
-    gdf_line = gdf_line.set_crs('EPSG:3413')
+    gdf_line = gdf_line.set_crs(f'EPSG:{config["epsg"]}')
     gdf_line.to_file(gpkg_path, layer='drift_lines', driver='GPKG')
     
 
@@ -667,4 +620,3 @@ def create_shape_package(df, gpkg_path, config):
     # log activity
     logger = logging.getLogger('sar_drift_ice_velocity_over_maosaic_vectors')
     logger.info(f'Created GeoPackage {gpkg_path}')
-  

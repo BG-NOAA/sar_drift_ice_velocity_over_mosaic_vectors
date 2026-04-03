@@ -2,18 +2,21 @@
 """
 ******************************************************************************
 
- Project:    SAR Drift Velocity over MOSAiC Vectors
- Purpose:    Refine SAR drift output per MOSAic buoy that includes necessary
-             fields for comparison with MOSAiC buoyt observations. Create an
-             accompanying GeoPackge file so the tracks can be visually shown.
- Author:     Brendon Gory, brendon.gory@noaa.gov
-                         brendon.gory@colostate.edu
-             Data Science Application Specialist (Research Associate II)
-             at CSU CIRA
- Supervisor: Dr. Prasanjit Dash, prasanjit.dash@noaa.gov
-                                 prasanjit.dash@colostate.edu
-             CSU CIRA Research Scientist III
-             (Program Innovation Scientist)
+ Project:     SAR Drift Ice Velocity over MOSAiC Vectors
+ Purpose:     For each MOSAiC buoy, filter SAR-derived sea-ice drift
+              observations, reproject coordinates to a configurable EPSG,
+              compute drift kinematics, and write per-buoy CSVs and
+              QGIS-styled GeoPackages for comparison with buoy observations.
+ Author:      Brendon Gory, brendon.gory@noaa.gov
+                            brendon.gory@colostate.edu
+              Data Science Application Specialist (Research Associate II)
+              at CSU CIRA
+ Supervisors: Dr. Ludovic Brucker, ludovic.brucker@noaa.gov
+              NESDIS Physical Scientist
+              Dr. Prasanjit Dash, prasanjit.dash@noaa.gov
+                                  prasanjit.dash@colostate.edu
+              CSU CIRA Research Scientist III
+              (Program Innovation Scientist)
 ******************************************************************************
 Copyright notice
          NOAA STAR SOCD and Colorado State Univ CIRA
@@ -41,6 +44,37 @@ Copyright notice
 
 
 def setup_logger(config):
+    """
+    Configure and return a file-based logger for the SAR drift converter run.
+
+    Creates a timestamped log file in the specified output directory and
+    attaches a file handler to the 'sar_drift_converter' logger. Each run
+    produces a uniquely named log file based on the UTC time at invocation.
+
+    Args:
+        output_dir (str): Directory where the log file will be written.
+                          Must exist prior to calling this function.
+
+    Returns:
+        tuple:
+            - logger (logging.Logger): Configured logger instance named
+              'sar_drift_converter', set to INFO level. Retrieve in any
+              module via `logging.getLogger('sar_drift_converter')`.
+            - log_path (str): Full path to the log file created, formatted
+              as `<output_dir>/run_YYYYMMDD_HHMMSS.log` in UTC.
+
+    Notes:
+        - Log records follow the format:
+          `YYYY-MM-DD HH:MM:SS,mmm | LEVEL | message`
+        - The logger is retrieved by name, so subsequent calls with the same
+          process will return the same logger instance and append an
+          additional file handler. This function should only be called once
+          per run.
+        - Only a file handler is attached; no console (stream) handler is
+          added, so log output will not appear in stdout unless a handler is
+          added separately elsewhere.
+    """
+    
     import os
     import logging
     from datetime import datetime
@@ -67,53 +101,60 @@ def setup_logger(config):
 
 def read_json_config():
     """
-    Parse and validate configuration for SAR Drift Output Generator.
-    
-    This function reads a JSON config file specified via the `-c` or 
-    `--config_file` argument and validates its contents against a strict
-    schema. It ensures all required inputs (SAR drift file, GeoTIFF, 
-    CDL metadata, output directory) exist and validates types and formatting
-    for each parameter.
-    
+    Parse and validate configuration for the SAR Drift Ice Velocity over
+    MOSAiC Vectors pipeline.
+
+    Reads a JSON config file specified via the `-c` / `--config_file`
+    command-line argument and validates its contents against a strict schema.
+    Ensures all required paths exist, validates types for each parameter,
+    creates output subdirectories, and injects versioned algorithm precision
+    constants from `constants.py`.
+
     Expected JSON keys (must match exactly):
-        - "sar_drift_directory"    (str):   Path to directory containing
-                                            multiple SAR drift delimited files
-                                            for batch processing.
-        - "qml_file"               (str):   Path to QML file that applies a
+        - "sar_drift_directory"     (str):  Path to directory containing SAR
+                                            drift delimited files for batch
+                                            processing.
+        - "qml_file"                (str):  Path to QML file that applies a
                                             style to GeoPackages when opened
                                             in QGIS.
-        - "clear_output_dir"       (bool):  Remove output directory and all
-                                            contents from previous runs.
-        - "delimiter"              (str):   Field separator in the input file
+        - "epsg"                    (int):  EPSG code of the target projected
+                                            CRS. Must be 3413 (NSIDC Sea Ice
+                                            Polar Stereographic North) or 6931
+                                            (EASE-Grid 2.0 North).
+        - "clear_output_dir"        (bool): Remove output subdirectories and
+                                            all contents from previous runs
+                                            before processing.
+        - "delimiter"               (str):  Field separator in the input files
                                             (e.g., ",", "\\t").
-        - "skip_rows_before_header"(int):   Number of rows to skip before
-                                            the header in the data file.
-                                            pool and recompute.
-        - "verbose"                (bool):  Print detailed parameter info to
-                                            the console.
-        - "version"                (str):   Version of the application
+        - "skip_rows_before_header" (int):  Number of rows to skip before the
+                                            header row in each data file.
+        - "verbose"                 (bool): Print resolved configuration
+                                            parameters to the console.
+        - "version"                 (str):  Version string appended to all
+                                            output filenames (e.g., "01").
 
     Command-line arguments:
         -c, --config_file: Path to a JSON file with all required configuration.
 
     Returns:
-        dict: Validated configuration dictionary with normalized paths and
-              resolved output subdirectories:
-              - 'filtered_data_dir':  <output_dir>/filtered_data
-              - 'formatted_data_dir': <output_dir>/formatted_data
-              - 'gpkg_dir':           <output_dir>/gpkg
+        dict: Validated configuration dictionary containing all JSON parameters
+              (with paths normalized and EPSG validated), versioned algorithm
+              precision constants from `constants.py`, and the following
+              resolved output subdirectory paths:
+              - 'log_dir':  log/
+              - 'csv_dir':  csv/
+              - 'gpkg_dir': gpkg/
 
     Raises:
         Exits the script (status code 1) if:
-            - Config file is missing or improperly formatted.
-            - Required files or directories do not exist.
-            - Parameter types are invalid (e.g., non-integer precision).
-            - Unexpected or missing keys are present in the JSON.
-
-
+            - The config file argument is missing or the file cannot be opened.
+            - Required keys are absent or unexpected keys are present.
+            - Parameter types are invalid (e.g., non-bool for clear_output_dir).
+            - `epsg` is not 3413 or 6931.
+            - Required paths (`sar_drift_directory`, `qml_file`) do not exist.
 
     Example:
-        $ python sar_drift_output.py -c config.json
+        $ python sar_drift_ice_velocity_over_mosaic_vectors.py -c config.json
     """
 
     import util
@@ -146,7 +187,7 @@ def read_json_config():
 
     # Key validation
     required_json_keys = {
-        "sar_drift_directory", "qml_file", "clear_output_dir",
+        "sar_drift_directory", "qml_file", "clear_output_dir", "epsg",
         "delimiter", "skip_rows_before_header", "verbose", 'version'
     }
     config_keys = set(config.keys())
@@ -160,7 +201,6 @@ def read_json_config():
         util.error_msg(
             f"Unexpected keys in {config_file}: {', '.join(extra)}"
         )
-
 
 
     # define schema
@@ -183,7 +223,11 @@ def read_json_config():
         config[key] = expected_type(val)
 
 
-
+    # epsg validation
+    if config['epsg'] not in [3413, 6931]:
+        util.error_msg('`epsg` must be `3413` or `6931`')
+        
+        
     # Path resolution and existence checks
     path_checks = [
         ('sar_drift_directory', 'sar_drift_directory', True),
@@ -218,6 +262,7 @@ def read_json_config():
         **resolved_paths,
         **subdir_paths,
         'clear_output_dir':        config['clear_output_dir'],
+        'epsg':                    config['epsg'],
         'delimiter':               delimiter,
         'skip_rows_before_header': config['skip_rows_before_header'],
         'bearing_precision':       BEARING_PRECISION,
@@ -235,6 +280,7 @@ def read_json_config():
             'sar_drift_directory':    'sar drift directory',
             'qml_file':               'qml file',
             'clear_output_dir':       'clear output dir',
+            'epsg':                   'epsg',
             'delimiter':              'delimiter',
             'skip_rows_before_header':'skip rows before header',
             'bearing_precision':      'bearing precision',
@@ -252,19 +298,24 @@ def read_json_config():
 
 def main():
     """
-    Main execution workflow for converting SAR drift data to GeoPackage
-    and NetCDF formats.
+    Main execution workflow for the SAR Drift Ice Velocity over MOSAiC
+    Vectors pipeline.
 
-    This function:
-    - Parses command-line arguments
-    - Loads and preprocesses the SAR drift input file
-    - Generates a GeoPackage file containing point and line geometries for QGIS
-    - Generates a CF-compliant NetCDF file using metadata from a CDL template
+    This function orchestrates the full per-buoy processing loop:
+        1. Parses and validates configuration via `read_json_config`.
+        2. Discovers all .txt and .csv files in `sar_drift_directory`.
+        3. Initializes a timestamped log file.
+        4. For each buoy file:
+               a. Reads and preprocesses the SAR drift data.
+               b. Applies bearing/speed validity, speed ceiling, and
+                  correlation quality filters.
+               c. Writes a filtered, reduced-column CSV.
+               d. Writes a drift-line GeoPackage in the configured EPSG
+                  with an embedded QGIS style.
+        5. Logs total elapsed time on completion.
 
-    The output files are saved to the specified output directory.
-
-    This function is intended to be executed when the script is run
-    as a standalone program.
+    Intended to be called only when the script is run as a standalone
+    program (i.e. via `if __name__ == "__main__"`).
     """
 
     # import sar_drift as sd
@@ -350,7 +401,8 @@ def main():
         # create reduced CSV file
         csv_path = os.path.join(
             config['csv_dir'],
-            f'NOAA_SIVelocity_SAR_{buoy_id}_v{config["version"]}.csv'
+            f'NOAA_SIVelocity_SAR_{buoy_id}__{config["epsg"]}_'
+            f'v{config["version"]}.csv'
         )
         df.to_csv(csv_path, index=False)
         logger.info(f'Created CSV {csv_path}')
@@ -359,7 +411,8 @@ def main():
         # create reduced GeoPackage
         gpkg_path = os.path.join(
             config['gpkg_dir'],
-            f'NOAA_SIVelocity_SAR_{buoy_id}_v{config["version"]}.gpkg'
+            f'NOAA_SIVelocity_SAR_{buoy_id}__{config["epsg"]}_'
+            f'v{config["version"]}.gpkg'
         )
         util.create_shape_package(df, gpkg_path, config)
                 
