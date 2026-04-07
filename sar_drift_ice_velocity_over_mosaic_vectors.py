@@ -405,7 +405,7 @@ def main():
         # create reduced GeoPackage
         gpkg_path = os.path.join(
             config['gpkg_dir'],
-            f'NOAA_SIVelocity_SAR_{buoy_id}__{config["epsg"]}_'
+            f'NOAA_SIVelocity_SAR_{buoy_id}_{config["epsg"]}_'
             f'v{config["version"]}.gpkg'
         )
         util.create_shape_package(df, gpkg_path, config)
@@ -417,7 +417,7 @@ def main():
         # create reduced CSV file
         csv_path = os.path.join(
             config['csv_dir'],
-            f'NOAA_SIVelocity_SAR_{buoy_id}__{config["epsg"]}_'
+            f'NOAA_SIVelocity_SAR_{buoy_id}_{config["epsg"]}_'
             f'v{config["version"]}.csv'
         )
         df.to_csv(csv_path, index=False)
