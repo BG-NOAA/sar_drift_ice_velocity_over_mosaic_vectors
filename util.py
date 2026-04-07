@@ -72,12 +72,12 @@ def error_msg(msg):
 def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
     """
     Compute sea-ice drift kinematics from start/end geographic coordinates.
-
+ 
     Projects start and end positions from EPSG:4326 to the projection
     specified by `epsg`, computes Cartesian displacement components, and
     derives speed. Bearing is obtained via a WGS84 geodesic inverse
     calculation.
-
+ 
     Args:
         lat1 (array-like): Starting latitudes in decimal degrees (EPSG:4326).
         lon1 (array-like): Starting longitudes in decimal degrees (EPSG:4326).
@@ -90,33 +90,38 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
                     (e.g. 3413 for NSIDC Sea Ice Polar Stereographic North,
                      3411 for Hughes 1980 Polar Stereographic,
                      3408 for NSIDC EASE-Grid North).
-
+ 
     Returns:
         dict: Dictionary of derived drift quantities with the following keys:
-
+ 
             Projected coordinates (target EPSG, metres):
                 - 'X1' : x-coordinate of start position
                 - 'Y1' : y-coordinate of start position
                 - 'X2' : x-coordinate of end position
                 - 'Y2' : y-coordinate of end position
-
+ 
             Displacement (target EPSG, metres):
                 - 'dx' : X2 − X1
                 - 'dy' : Y2 − Y1
-
+ 
+            Distance (metres):
+                - 'distance'      : Euclidean distance in projected space,
+                                    computed as sqrt(dx² + dy²) (m)
+                - 'distance_geod' : geodesic distance on the WGS84 ellipsoid,
+                                    from `pyproj.Geod.inv()` (m)
+ 
             Geodesic quantities (WGS84 ellipsoid, independent of EPSG):
-                - 'distance'  : geodesic distance between start and end (m)
                 - 'bearing'   : forward azimuth from start to end (degrees)
-
+ 
             Velocity components (target EPSG):
                 - 'u_ms' : dx / duration_s  (m s⁻¹)
                 - 'v_ms' : dy / duration_s  (m s⁻¹)
-
-            Speed:
+ 
+            Speed (derived from Euclidean `distance`):
                 - 'speed_ms'   : distance / duration_s (m s⁻¹)
                 - 'speed_kmdy' : (distance / 1000) / (duration_s / 86400)
                                   (km day⁻¹)
-
+ 
     Notes:
         - Projection is performed with `pyproj.Transformer.from_crs` using
           `always_xy=True`, so longitude is passed before latitude.
@@ -130,7 +135,7 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
           opposite convention (U drives Y, V drives X). The values returned
           here are computed directly from projected displacements and are
           self-consistent.
-
+ 
     Coauthor:
         Ludo Brucker, ludovic.brucker@noaa.gov
     """
@@ -146,9 +151,10 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
    
 
     dx, dy = np.subtract((x2, y2),(x1, y1))
+    distance = np.sqrt(dx**2 + dy**2)
 
     geod = Geod(ellps='WGS84')
-    fwd_azimuth, _ , distance = geod.inv(lon1, lat1, lon2, lat2)
+    fwd_azimuth, _ , distance_geod = geod.inv(lon1, lat1, lon2, lat2)
     
     return {
         'X1': x1, 'Y1': y1,
@@ -156,6 +162,7 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
         'dx': dx,
         'dy': dy,
         'distance': distance,
+        'distance_geod': distance_geod,
         'bearing': fwd_azimuth,
         'u_ms': dx / duration_s,
         'v_ms': dy / duration_s,
@@ -265,14 +272,14 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
     """
     Read and preprocess a SAR ice-drift text data file into a standardized
     DataFrame.
- 
+    
     This function loads a SAR drift data file (CSV-like text) using parsing
     rules provided in `config`, cleans column names, and derives projected
     coordinates, displacement, velocity, speed, and sensor identifier fields.
     Several raw source columns are renamed for consistency with NetCDF/
     GeoPackage output naming, and columns that are not needed downstream
     are dropped.
- 
+    
     Processing steps:
         1. Read the file with `pandas.read_csv()` using delimiter and header
            offsets from `config`.
@@ -298,7 +305,7 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
                File1, File2, Time1_JS, Time2_JS, U_vel_ms, V_vel_ms,
                Speed_kmdy, Bear_deg, img1_mean, img1_std, img2_mean,
                img2_std, img1s_mean, img1s_std, Per_Valid
- 
+    
     Args:
         input_file (str or pathlib.Path): Path to the SAR drift data file
                                           to read.
@@ -316,18 +323,18 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
               `direction_of_sea_ice_displacement`.
         skip_rows (list[int] or None): Row indices to skip when reading the
             file, passed directly to `pd.read_csv`. Defaults to None.
- 
+    
     Returns:
         pandas.DataFrame: Cleaned and enriched SAR drift DataFrame. Raw source
         columns are preserved (except those listed as dropped above) together
         with the following derived and renamed columns:
- 
+    
         Renamed geographic coordinates (rounded to `coordinates_position`):
             - 'latitude_1'  (float): Starting latitude  (degrees, from Lat1)
             - 'longitude_1' (float): Starting longitude (degrees, from Lon1)
             - 'latitude_2'  (float): Ending latitude    (degrees, from Lat2)
             - 'longitude_2' (float): Ending longitude   (degrees, from Lon2)
- 
+    
         Derived timestamps and duration:
             - 'date_start' (str): Start datetime in '%Y-%m-%d %H:%M:%S'
                                   (from Time1_JS)
@@ -335,30 +342,39 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
                                   (from Time2_JS)
             - 'duration_s' (float): Observation duration in seconds
                                     (Time2_JS − Time1_JS); not rounded.
- 
+    
         Projected coordinates (EPSG:3413, metres; rounded to
         `coordinates_position`):
             - 'X1', 'Y1': Start position
             - 'X2', 'Y2': End position
- 
+    
         Displacement (EPSG:3413; rounded to `speed_precision`):
             - 'sea_ice_x_displacement' (float): X2 − X1  (m)
             - 'sea_ice_y_displacement' (float): Y2 − Y1  (m)
-
+    
         Velocity (EPSG:3413; not rounded):
             - 'u_ms' (float): sea_ice_x_displacement / duration_s  (m s⁻¹)
             - 'v_ms' (float): sea_ice_y_displacement / duration_s  (m s⁻¹)
- 
+    
         Speed and direction:
-            - 'sea_ice_speed'      (float): geodesic speed (m s⁻¹);
-                                            rounded to `speed_precision`
-            - 'sea_ice_speed_kmdy' (float): geodesic speed (km day⁻¹);
-                                            rounded to `speed_precision`
+            - 'sea_ice_speed'      (float): Cartesian speed in projected
+                                            space (m s⁻¹); rounded to
+                                            `speed_precision`
+            - 'sea_ice_speed_kmdy' (float): Cartesian speed in projected space
+                                            (km day⁻¹); rounded to
+                                            `speed_precision`
             - 'direction_of_sea_ice_displacement' (float): forward azimuth
                                             (degrees); rounded to
                                             `bearing_precision`
-            - 'distance' (float): geodesic distance (m); rounded to
-                                  `speed_precision`
+            - 'distance'      (float): Euclidean displacement distance in
+                                       projected space — sqrt(dx² + dy²) (m);
+                                       rounded to `speed_precision`. Written
+                                       to both CSV and GeoPackage.
+            - 'distance_geod' (float): Geodesic distance on the WGS84
+                                       ellipsoid from `pyproj.Geod.inv()` (m);
+                                       rounded to `speed_precision`. Written
+                                       to GeoPackage only; dropped before CSV
+                                       is written.
             
         Sensor and scene identifiers:
             - 'scene_id' (str): Combination of 'File1' and 'File2' separated
@@ -366,7 +382,7 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
             - 'sensor1' (str):  Satellite identifier from File1
                                 (prefix before first underscore)
             - 'sensor2' (str):  Satellite identifier from File2
- 
+    
     Notes:
         - SAR time fields `Time1_JS` and `Time2_JS` are seconds since
           2000-01-01 00:00:00.
@@ -460,6 +476,9 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
     df['distance'] = np.round(
         drift['distance'], config['speed_precision']
     )
+    df['distance_geod'] = np.round(
+        drift['distance_geod'], config['speed_precision']
+    )
     
     
     # identify satellites for analysis
@@ -495,13 +514,13 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
 def create_shape_package(df, gpkg_path, config):
     """
     Create a GeoPackage containing drift line vectors for SAR drift data.
-
+ 
     Builds LineString geometries from projected start and end coordinates
     in the CRS specified by `config['epsg']` and writes all columns from
     the input DataFrame as a single `drift_lines` layer within a GeoPackage.
     A QML style file is embedded directly into the GeoPackage's `layer_styles`
     table for automatic styling when opened in QGIS.
-
+ 
     Args:
         df (pandas.DataFrame): Input DataFrame containing drift vectors, as
             produced by `read_sar_drift_data_file`. All columns are written
@@ -530,7 +549,13 @@ def create_shape_package(df, gpkg_path, config):
                     - 'direction_of_sea_ice_displacement' (float): Forward
                                                                    azimuth
                                                                    (degrees).
-                    - 'distance' (float): Geodesic displacement distance (m).
+                    - 'distance'      (float): Euclidean displacement distance
+                                               in projected space —
+                                               sqrt(dx² + dy²) (m).
+                    - 'distance_geod' (float): Geodesic distance on the WGS84
+                                               ellipsoid (m). Present in the
+                                               GeoPackage; dropped from the
+                                               CSV after this function returns.
                 Outlier flag (when present):
                     - 'outlier_category' (str): Two-digit outlier code;
                       included in the output if present in `df`.
@@ -540,10 +565,10 @@ def create_shape_package(df, gpkg_path, config):
                                 LineString geometry
                                 (e.g. 3413, 3411, 3408).
                 - 'qml_file' (str): Path to the QML style file to embed.
-
+ 
     Returns:
         None
-
+ 
     Notes:
         - Geometry is a `LineString` from `(X1, Y1)` to `(X2, Y2)` in the
           projected CRS defined by `config['epsg']`, not from geographic

@@ -124,13 +124,13 @@ All outputs are written relative to the working directory.
 | `sea_ice_x_displacement` | m | X displacement (target EPSG) |
 | `sea_ice_y_displacement` | m | Y displacement (target EPSG) |
 | `u_ms`, `v_ms` | m s⁻¹ | Cartesian velocity components (target EPSG) |
-| `sea_ice_speed` | m s⁻¹ | Geodesic drift speed |
-| `sea_ice_speed_kmdy` | km day⁻¹ | Drift speed, scaled to daily rate |
+| `sea_ice_speed`      | m s⁻¹     | Cartesian drift speed in projected space |
+| `sea_ice_speed_kmdy` | km day⁻¹  | Cartesian drift speed, scaled to daily rate |
 | `direction_of_sea_ice_displacement` | degrees | Forward azimuth (WGS84 geodesic) |
-| `distance` | m | Geodesic displacement distance |
+| `distance` | m | Euclidean displacement distance in projected space — `sqrt(dx² + dy²)`; written to CSV and GeoPackage |
+| `distance_geod` | m | Geodesic distance on the WGS84 ellipsoid (`pyproj.Geod.inv()`); written to GeoPackage only, dropped before CSV |
 | `sensor1`, `sensor2` | — | SAR platform identifiers parsed from filenames |
 | `scene_id` | — | `File1_File2` scene-pair identifier |
-| `Maxcorr1`, `Maxcorr2` | — | Maximum correlation scores from SAR tracking |
 
 ---
 

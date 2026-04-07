@@ -397,15 +397,9 @@ def main():
                 f"{initial_row_size - df.shape[0]})"
             )
 
-        
-        # create reduced CSV file
-        csv_path = os.path.join(
-            config['csv_dir'],
-            f'NOAA_SIVelocity_SAR_{buoy_id}__{config["epsg"]}_'
-            f'v{config["version"]}.csv'
-        )
-        df.to_csv(csv_path, index=False)
-        logger.info(f'Created CSV {csv_path}')
+
+        # drop Maxcorr columns
+        df.drop(['Maxcorr1', 'Maxcorr2'], axis=1, inplace=True)
         
         
         # create reduced GeoPackage
@@ -415,7 +409,20 @@ def main():
             f'v{config["version"]}.gpkg'
         )
         util.create_shape_package(df, gpkg_path, config)
-                
+        
+        
+        # drop geod distance
+        df.drop('distance_geod', axis=1, inplace=True)
+        
+        # create reduced CSV file
+        csv_path = os.path.join(
+            config['csv_dir'],
+            f'NOAA_SIVelocity_SAR_{buoy_id}__{config["epsg"]}_'
+            f'v{config["version"]}.csv'
+        )
+        df.to_csv(csv_path, index=False)
+        logger.info(f'Created CSV {csv_path}')
+
     
     run_end = datetime.utcnow() 
     elapsed = run_end - run_start
