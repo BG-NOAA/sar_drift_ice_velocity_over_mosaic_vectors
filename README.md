@@ -120,10 +120,10 @@ All outputs are written relative to the working directory.
 | `latitude_2`, `longitude_2` | degrees | End position |
 | `X1`, `Y1`, `X2`, `Y2` | m (target EPSG) | Projected start / end coordinates |
 | `date_start`, `date_end` | UTC datetime | Observation window |
-| `duration_s` | s | Observation duration |
+| `duration` | s | Observation duration |
 | `sea_ice_x_displacement` | m | X displacement (target EPSG) |
 | `sea_ice_y_displacement` | m | Y displacement (target EPSG) |
-| `u_ms`, `v_ms` | m s⁻¹ | Cartesian velocity components (target EPSG) |
+| `u`, `v` | m s⁻¹ | Cartesian velocity components (target EPSG) |
 | `sea_ice_speed`      | m s⁻¹     | Cartesian drift speed in projected space |
 | `sea_ice_speed_kmdy` | km day⁻¹  | Cartesian drift speed, scaled to daily rate |
 | `direction_of_sea_ice_displacement` | degrees | Forward azimuth (WGS84 geodesic) |
@@ -152,7 +152,7 @@ Rounding precision constants are defined in `constants.py` and version-controlle
 |---|---|---|
 | `BEARING_PRECISION` | `0` | `direction_of_sea_ice_displacement` |
 | `SPEED_PRECISION` | `3` | Speed, displacement, and distance fields |
-| `DISPLACEMENT_PRECISION` | `4` | `u_ms`, `v_ms`, `dx`, `dy` components |
+| `DISPLACEMENT_PRECISION` | `4` | `u`, `v`, `dx`, `dy` components |
 | `COORDINATE_PRECISION` | `4` | Projected and geographic coordinate columns |
 
 ---

@@ -69,7 +69,7 @@ def error_msg(msg):
 # Internal functions
 #===================
 
-def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
+def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration, epsg):
     """
     Compute sea-ice drift kinematics from start/end geographic coordinates.
  
@@ -83,7 +83,7 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
         lon1 (array-like): Starting longitudes in decimal degrees (EPSG:4326).
         lat2 (array-like): Ending latitudes in decimal degrees (EPSG:4326).
         lon2 (array-like): Ending longitudes in decimal degrees (EPSG:4326).
-        duration_s (array-like): Observation duration in seconds
+        duration (array-like): Observation duration in seconds
                                   (Time2_JS − Time1_JS).
         epsg (int): EPSG code of the target projected CRS used for Cartesian
                     displacement and velocity components
@@ -114,12 +114,12 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
                 - 'bearing'   : forward azimuth from start to end (degrees)
  
             Velocity components (target EPSG):
-                - 'u_ms' : dx / duration_s  (m s⁻¹)
-                - 'v_ms' : dy / duration_s  (m s⁻¹)
+                - 'u' : dx / duration  (m s⁻¹)
+                - 'v' : dy / duration  (m s⁻¹)
  
             Speed (derived from Euclidean `distance`):
-                - 'speed_ms'   : distance / duration_s (m s⁻¹)
-                - 'speed_kmdy' : (distance / 1000) / (duration_s / 86400)
+                - 'speed_ms'   : distance / duration (m s⁻¹)
+                - 'speed_kmdy' : (distance / 1000) / (duration / 86400)
                                   (km day⁻¹)
  
     Notes:
@@ -128,7 +128,7 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
         - Geodesic distance and forward azimuth are computed with
           `pyproj.Geod(ellps='WGS84').inv(lon1, lat1, lon2, lat2)` and are
           independent of the chosen EPSG.
-        - `u_ms` and `v_ms` are Cartesian velocity components in the target
+        - `u` and `v` are Cartesian velocity components in the target
           projected CRS. Axis orientation varies by projection; in EPSG:3413
           the x-axis points roughly eastward and the y-axis roughly northward.
           Note that the source file's `U_vel_ms` / `V_vel_ms` fields use the
@@ -164,10 +164,10 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration_s, epsg):
         'distance': distance,
         'distance_geod': distance_geod,
         'bearing': fwd_azimuth,
-        'u_ms': dx / duration_s,
-        'v_ms': dy / duration_s,
-        'speed_ms': distance / duration_s,
-        'speed_kmdy': (distance / 1000) / (duration_s / SECONDS_PER_DAY)
+        'u': dx / duration
+        'v': dy / duration,
+        'speed_ms': distance / duration,
+        'speed_kmdy': (distance / 1000) / (duration / SECONDS_PER_DAY)
     }
 
 
@@ -286,7 +286,7 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
         2. Strip whitespace from column names.
         3. Convert Julian seconds timestamps (`Time1_JS`, `Time2_JS`) to
            human-readable datetime strings (`date_start`, `date_end`).
-        4. Compute observation duration in seconds (`duration_s`).
+        4. Compute observation duration in seconds (`duration`).
         5. Project start/end lat/lon to EPSG:3413 and compute displacement,
            velocity, speed, and bearing via `_calculate_drift_daily`.
         6. Round computed fields according to precision keys in `config`:
@@ -295,7 +295,7 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
                                       sea_ice_y_displacement, sea_ice_speed,
                                       sea_ice_speed_kmdy, distance
                bearing_precision    : direction_of_sea_ice_displacement
-               u_ms, v_ms are not rounded.
+               u, v are not rounded.
         7. Extract sensor identifiers from `File1`/`File2` into `sensor1`/
            `sensor2`.
         8. Rename geographic coordinate columns:
@@ -340,8 +340,8 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
                                   (from Time1_JS)
             - 'date_end'   (str): End datetime in '%Y-%m-%d %H:%M:%S'
                                   (from Time2_JS)
-            - 'duration_s' (float): Observation duration in seconds
-                                    (Time2_JS − Time1_JS); not rounded.
+            - 'duration' (float): Observation duration in seconds
+                                  (Time2_JS − Time1_JS); not rounded.
     
         Projected coordinates (EPSG:3413, metres; rounded to
         `coordinates_position`):
@@ -353,8 +353,8 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
             - 'sea_ice_y_displacement' (float): Y2 − Y1  (m)
     
         Velocity (EPSG:3413; not rounded):
-            - 'u_ms' (float): sea_ice_x_displacement / duration_s  (m s⁻¹)
-            - 'v_ms' (float): sea_ice_y_displacement / duration_s  (m s⁻¹)
+            - 'u' (float): sea_ice_x_displacement / duration  (m s⁻¹)
+            - 'v' (float): sea_ice_y_displacement / duration  (m s⁻¹)
     
         Speed and direction:
             - 'sea_ice_speed'      (float): Cartesian speed in projected
@@ -433,7 +433,7 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
     
 
     # Calculate duration of observations in seconds
-    df['duration_s'] = (
+    df['duration'] = (
         df['Time2_JS'] - df['Time1_JS']
     )
     
@@ -442,7 +442,7 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
         lon1=df['Lon1'].values,
         lat2=df['Lat2'].values,
         lon2=df['Lon2'].values,
-        duration_s=df['duration_s'].values,
+        duration=df['duration'].values,
         epsg=config['epsg']
     )
     
@@ -460,8 +460,8 @@ def read_sar_drift_data_file(input_file, config, skip_rows=None):
     df['sea_ice_y_displacement'] = np.round(
         drift['dy'], config['speed_precision']
     )
-    df['u_ms'] = drift['u_ms']
-    df['v_ms'] = drift['v_ms']
+    df['u'] = drift['u']
+    df['v'] = drift['v']
     df['sea_ice_speed'] = np.round(
         drift['speed_ms'],
         config['speed_precision']
@@ -536,14 +536,14 @@ def create_shape_package(df, gpkg_path, config):
                                          ('%Y-%m-%d %H:%M:%S').
                     - 'date_end'   (str): End datetime
                                          ('%Y-%m-%d %H:%M:%S').
-                    - 'duration_s' (float): Observation duration (s).
+                    - 'duration' (float): Observation duration (s).
                 Sensor identifiers:
                     - 'sensor1', 'sensor2' (str): Satellite/sensor IDs.
                 Science variables:
                     - 'sea_ice_x_displacement' (float): X displacement (m).
                     - 'sea_ice_y_displacement' (float): Y displacement (m).
-                    - 'u_ms' (float): X velocity component (m s⁻¹).
-                    - 'v_ms' (float): Y velocity component (m s⁻¹).
+                    - 'u' (float): X velocity component (m s⁻¹).
+                    - 'v' (float): Y velocity component (m s⁻¹).
                     - 'sea_ice_speed' (float): Drift speed (m s⁻¹).
                     - 'sea_ice_speed_kmdy' (float): Drift speed (km day⁻¹).
                     - 'direction_of_sea_ice_displacement' (float): Forward
