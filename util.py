@@ -164,7 +164,7 @@ def _calculate_drift_daily(lat1, lon1, lat2, lon2, duration, epsg):
         'distance': distance,
         'distance_geod': distance_geod,
         'bearing': fwd_azimuth,
-        'u': dx / duration
+        'u': dx / duration,
         'v': dy / duration,
         'speed_ms': distance / duration,
         'speed_kmdy': (distance / 1000) / (duration / SECONDS_PER_DAY)
